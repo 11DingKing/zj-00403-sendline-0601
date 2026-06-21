@@ -12,7 +12,7 @@ function recalcCapacity(segmentId) {
     .prepare(
       `
     SELECT COUNT(*) as c FROM defect_orders
-    WHERE segment_id = ? AND severity = '危急' AND status IN ('待处理', '处理中')
+    WHERE segment_id = ? AND severity = '危急' AND status IN ('待处理', '处理中', '待复核')
   `,
     )
     .get(segmentId).c;
@@ -21,7 +21,7 @@ function recalcCapacity(segmentId) {
     .prepare(
       `
     SELECT COUNT(*) as c FROM defect_orders
-    WHERE segment_id = ? AND severity = '严重' AND status IN ('待处理', '处理中')
+    WHERE segment_id = ? AND severity = '严重' AND status IN ('待处理', '处理中', '待复核')
   `,
     )
     .get(segmentId).c;
@@ -39,11 +39,11 @@ function recalcCapacity(segmentId) {
   );
   db.prepare(
     `UPDATE defect_orders SET capacity_restricted = 1 
-     WHERE segment_id = ? AND severity IN ('危急', '严重') AND status IN ('待处理', '处理中')`,
+     WHERE segment_id = ? AND severity IN ('危急', '严重') AND status IN ('待处理', '处理中', '待复核')`,
   ).run(segmentId);
   db.prepare(
     `UPDATE defect_orders SET capacity_restricted = 0 
-     WHERE segment_id = ? AND (severity NOT IN ('危急', '严重') OR status NOT IN ('待处理', '处理中'))`,
+     WHERE segment_id = ? AND (severity NOT IN ('危急', '严重') OR status NOT IN ('待处理', '处理中', '待复核'))`,
   ).run(segmentId);
 
   const line = db
@@ -219,14 +219,26 @@ router.put("/:id/handle", (req, res) => {
   if (!order) return res.status(404).json({ error: "缺陷工单不存在" });
   const { handler, handle_notes } = req.body;
   if (!handler) return res.status(400).json({ error: "缺少处理人" });
-  const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE defect_orders SET handler = ?, handled_at = ?, handle_notes = ?, status = '待复核' WHERE id = ?`,
-  ).run(handler, now, handle_notes, req.params.id);
-  const updated = db
-    .prepare("SELECT * FROM defect_orders WHERE id = ?")
-    .get(req.params.id);
-  res.json(updated);
+
+  const tx = db.transaction(() => {
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE defect_orders SET handler = ?, handled_at = ?, handle_notes = ?, status = '待复核' WHERE id = ?`,
+    ).run(handler, now, handle_notes, req.params.id);
+    if (order.severity === "危急" || order.severity === "严重") {
+      recalcCapacity(order.segment_id);
+    }
+  });
+
+  try {
+    tx();
+    const updated = db
+      .prepare("SELECT * FROM defect_orders WHERE id = ?")
+      .get(req.params.id);
+    res.json(updated);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 router.put("/:id/review", (req, res) => {
@@ -237,13 +249,23 @@ router.put("/:id/review", (req, res) => {
   const { reviewer, review_notes, pass = true } = req.body;
   if (!reviewer) return res.status(400).json({ error: "缺少复核人" });
   if (!pass) {
-    db.prepare(
-      `UPDATE defect_orders SET reviewer = ?, review_notes = ?, status = '处理中' WHERE id = ?`,
-    ).run(reviewer, review_notes || "复核不通过，需重新处理", req.params.id);
-    const updated = db
-      .prepare("SELECT * FROM defect_orders WHERE id = ?")
-      .get(req.params.id);
-    return res.json(updated);
+    const tx = db.transaction(() => {
+      db.prepare(
+        `UPDATE defect_orders SET reviewer = ?, review_notes = ?, status = '处理中' WHERE id = ?`,
+      ).run(reviewer, review_notes || "复核不通过，需重新处理", req.params.id);
+      if (order.severity === "危急" || order.severity === "严重") {
+        recalcCapacity(order.segment_id);
+      }
+    });
+    try {
+      tx();
+      const updated = db
+        .prepare("SELECT * FROM defect_orders WHERE id = ?")
+        .get(req.params.id);
+      return res.json(updated);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
   }
 
   const tx = db.transaction(() => {

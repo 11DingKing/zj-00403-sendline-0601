@@ -21,13 +21,15 @@ router.get("/defect-density", (req, res) => {
 
   const result = segments.map((seg) => {
     const totalDefects = db
-      .prepare("SELECT COUNT(*) as c FROM defect_orders WHERE segment_id = ?")
+      .prepare(
+        "SELECT COUNT(*) as c FROM defect_orders WHERE segment_id = ? AND status IN ('待处理', '处理中', '待复核')",
+      )
       .get(seg.id).c;
     const bySeverity = db
       .prepare(
         `
       SELECT severity, COUNT(*) as c FROM defect_orders
-      WHERE segment_id = ? GROUP BY severity
+      WHERE segment_id = ? AND status IN ('待处理', '处理中', '待复核') GROUP BY severity
     `,
       )
       .all(seg.id);
@@ -381,7 +383,7 @@ router.get("/flood-risk", (req, res) => {
     const activeFloodDefects = db
       .prepare(
         `SELECT COUNT(*) as c FROM defect_orders 
-       WHERE segment_id = ? AND flood_related = 1 AND status IN ('待处理', '处理中')`,
+       WHERE segment_id = ? AND flood_related = 1 AND status IN ('待处理', '处理中', '待复核')`,
       )
       .get(seg.id).c;
 
