@@ -118,6 +118,18 @@ router.get("/:id", (req, res) => {
   res.json(order);
 });
 
+function isFloodRelatedDefect(defectType) {
+  const floodTypes = [
+    "塔基边坡异常",
+    "塔基滑坡",
+    "通道树障",
+    "基础冲刷",
+    "防洪设施损坏",
+    "排水系统堵塞",
+  ];
+  return floodTypes.some((t) => defectType && defectType.includes(t));
+}
+
 router.post("/", (req, res) => {
   const {
     record_id,
@@ -127,6 +139,7 @@ router.post("/", (req, res) => {
     severity,
     assignee,
     deadline,
+    flood_related,
   } = req.body;
   if (!segment_id || !defect_type || !description || !severity) {
     return res.status(400).json({ error: "缺少必填字段" });
@@ -140,12 +153,19 @@ router.post("/", (req, res) => {
       return d.toISOString().split("T")[0];
     })();
 
+  const isFlood =
+    flood_related != null
+      ? flood_related
+      : isFloodRelatedDefect(defect_type)
+        ? 1
+        : 0;
+
   const tx = db.transaction(() => {
     const info = db
       .prepare(
         `
-      INSERT INTO defect_orders (record_id, segment_id, defect_type, description, severity, assignee, deadline)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO defect_orders (record_id, segment_id, defect_type, description, severity, assignee, deadline, flood_related)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -156,6 +176,7 @@ router.post("/", (req, res) => {
         severity,
         assignee,
         deadlineDate,
+        isFlood,
       );
 
     if (severity === "危急" || severity === "严重") {
@@ -249,7 +270,14 @@ router.put("/:id", (req, res) => {
     .prepare("SELECT * FROM defect_orders WHERE id = ?")
     .get(req.params.id);
   if (!order) return res.status(404).json({ error: "缺陷工单不存在" });
-  const { defect_type, description, severity, deadline, assignee } = req.body;
+  const {
+    defect_type,
+    description,
+    severity,
+    deadline,
+    assignee,
+    flood_related,
+  } = req.body;
   db.prepare(
     `
     UPDATE defect_orders SET
@@ -257,10 +285,19 @@ router.put("/:id", (req, res) => {
       description = COALESCE(?, description),
       severity = COALESCE(?, severity),
       deadline = COALESCE(?, deadline),
-      assignee = COALESCE(?, assignee)
+      assignee = COALESCE(?, assignee),
+      flood_related = COALESCE(?, flood_related)
     WHERE id = ?
   `,
-  ).run(defect_type, description, severity, deadline, assignee, req.params.id);
+  ).run(
+    defect_type,
+    description,
+    severity,
+    deadline,
+    assignee,
+    flood_related,
+    req.params.id,
+  );
 
   if (
     (severity === "危急" || severity === "严重") &&

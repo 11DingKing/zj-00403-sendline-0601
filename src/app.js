@@ -7,7 +7,7 @@ const db = require("./db");
 
 const linesRouter = require("./routes/lines");
 const towersRouter = require("./routes/towers");
-const segmentsRouter = require("./routes/segments");
+const { router: segmentsRouter } = require("./routes/segments");
 const crossingsRouter = require("./routes/crossings");
 const hazardsRouter = require("./routes/hazards");
 const { router: tasksRouter, generateTasks } = require("./routes/tasks");
@@ -52,12 +52,15 @@ app.get("/api", (req, res) => {
         "repair-duration": "/api/stats/repair-duration - 平均消缺时长",
         overdue: "/api/stats/overdue - 超期未处理",
         availability: "/api/stats/availability - 线路可用率",
+        "flood-risk": "/api/stats/flood-risk - 汛期通道风险",
       },
     },
   });
 });
 
 app.get("/", (req, res) => {
+  const isFloodSeason = db.isFloodSeason();
+
   const summary = db
     .prepare(
       `
@@ -67,6 +70,7 @@ app.get("/", (req, res) => {
       (SELECT COUNT(*) FROM segments) as segments,
       (SELECT COUNT(*) FROM inspection_tasks) as total_tasks,
       (SELECT COUNT(*) FROM inspection_tasks WHERE status = '待执行') as pending_tasks,
+      (SELECT COUNT(*) FROM inspection_tasks WHERE flood_season = 1 AND status = '待执行') as flood_pending_tasks,
       (SELECT COUNT(*) FROM inspection_records) as records,
       (SELECT COUNT(*) FROM defect_orders) as total_defects,
       (SELECT COUNT(*) FROM defect_orders WHERE severity = '危急' AND status IN ('待处理','处理中')) as critical_defects,
@@ -74,7 +78,11 @@ app.get("/", (req, res) => {
       (SELECT COUNT(*) FROM defect_orders WHERE status = '待处理') as pending_defects,
       (SELECT COUNT(*) FROM defect_orders WHERE status = '处理中') as handling_defects,
       (SELECT COUNT(*) FROM defect_orders WHERE status = '已关闭') as closed_defects,
-      (SELECT COUNT(*) FROM defect_orders WHERE status IN ('待处理','处理中','待复核') AND deadline < date('now')) as overdue_defects
+      (SELECT COUNT(*) FROM defect_orders WHERE status IN ('待处理','处理中','待复核') AND deadline < date('now')) as overdue_defects,
+      (SELECT COUNT(*) FROM defect_orders WHERE flood_related = 1 AND status IN ('待处理','处理中')) as flood_defects,
+      (SELECT COUNT(*) FROM segments WHERE flood_risk_level = '高') as high_flood_segments,
+      (SELECT COUNT(*) FROM segments WHERE flood_risk_level = '中') as medium_flood_segments,
+      (SELECT COUNT(*) FROM segments WHERE flood_risk_level = '低') as low_flood_segments
   `,
     )
     .get();
@@ -84,7 +92,9 @@ app.get("/", (req, res) => {
       `
     SELECT l.*, 
       (SELECT COUNT(*) FROM towers t WHERE t.line_id = l.id) as tower_count,
-      (SELECT COUNT(*) FROM segments s WHERE s.line_id = l.id) as segment_count
+      (SELECT COUNT(*) FROM segments s WHERE s.line_id = l.id) as segment_count,
+      (SELECT COUNT(*) FROM segments s WHERE s.line_id = l.id AND s.flood_risk_level = '高') as high_flood_segments,
+      (SELECT COUNT(*) FROM segments s WHERE s.line_id = l.id AND s.flood_risk_level = '中') as medium_flood_segments
     FROM lines l ORDER BY l.id
   `,
     )
@@ -93,7 +103,7 @@ app.get("/", (req, res) => {
   const tasks = db
     .prepare(
       `
-    SELECT it.*, s.segment_no, l.name as line_name
+    SELECT it.*, s.segment_no, l.name as line_name, s.flood_risk_level
     FROM inspection_tasks it
     LEFT JOIN segments s ON it.segment_id = s.id
     LEFT JOIN lines l ON s.line_id = l.id
@@ -105,7 +115,7 @@ app.get("/", (req, res) => {
   const defects = db
     .prepare(
       `
-    SELECT df.*, s.segment_no, l.name as line_name
+    SELECT df.*, s.segment_no, l.name as line_name, s.flood_risk_level
     FROM defect_orders df
     LEFT JOIN segments s ON df.segment_id = s.id
     LEFT JOIN lines l ON s.line_id = l.id
@@ -182,6 +192,22 @@ app.get("/", (req, res) => {
     .api-link { color: #3b82f6; text-decoration: none; font-size: 13px; }
     .api-link:hover { text-decoration: underline; }
     .small { font-size: 12px; color: #9ca3af; }
+    .flood-banner {
+      background: ${isFloodSeason ? "linear-gradient(135deg, #dc2626, #ea580c)" : "linear-gradient(135deg, #16a34a, #22c55e)"};
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .flood-banner .icon { font-size: 24px; }
+    .flood-banner .title { font-weight: 600; font-size: 15px; }
+    .flood-banner .desc { font-size: 13px; opacity: 0.9; }
+    .badge-flood-high { background: #fee2e2; color: #dc2626; }
+    .badge-flood-medium { background: #fed7aa; color: #ea580c; }
+    .badge-flood-low { background: #dcfce7; color: #15803d; }
   </style>
 </head>
 <body>
@@ -191,6 +217,14 @@ app.get("/", (req, res) => {
   </div>
   
   <div class="container">
+    <div class="flood-banner">
+      <div class="icon">${isFloodSeason ? "🌧️" : "☀️"}</div>
+      <div>
+        <div class="title">${isFloodSeason ? "当前处于汛期（5-9月）" : "当前处于非汛期"}</div>
+        <div class="desc">${isFloodSeason ? "高风险区段巡检频次已自动提升，请密切关注塔基边坡、跨越点和通道树障" : "汛期结束，巡检周期恢复正常"}</div>
+      </div>
+    </div>
+
     <div class="stats-grid">
       <div class="stat-card">
         <div class="label">送出线路</div>
@@ -227,6 +261,21 @@ app.get("/", (req, res) => {
         <div class="label">已消缺</div>
         <div class="value">${summary.closed_defects}</div>
       </div>
+      <div class="stat-card critical">
+        <div class="label">高汛期风险区段</div>
+        <div class="value">${summary.high_flood_segments}</div>
+        <div class="small">中风险 ${summary.medium_flood_segments} 个</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="label">汛期相关缺陷</div>
+        <div class="value">${summary.flood_defects}</div>
+        <div class="small">待处理/处理中</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">汛期待检任务</div>
+        <div class="value">${summary.flood_pending_tasks}</div>
+        <div class="small">已加密频次</div>
+      </div>
     </div>
 
     <div class="section">
@@ -239,6 +288,7 @@ app.get("/", (req, res) => {
             <th>全长</th>
             <th>杆塔数</th>
             <th>区段数</th>
+            <th>汛期风险</th>
             <th>额定容量</th>
             <th>当前容量</th>
             <th>容量比</th>
@@ -250,6 +300,19 @@ app.get("/", (req, res) => {
               const ratio = capacityRatio(l);
               const fillClass =
                 ratio >= 80 ? "high" : ratio >= 50 ? "medium" : "low";
+              const floodBadges = [];
+              if (l.high_flood_segments > 0)
+                floodBadges.push(
+                  `<span class="badge badge-flood-high">高 ${l.high_flood_segments}</span>`,
+                );
+              if (l.medium_flood_segments > 0)
+                floodBadges.push(
+                  `<span class="badge badge-flood-medium">中 ${l.medium_flood_segments}</span>`,
+                );
+              if (floodBadges.length === 0)
+                floodBadges.push(
+                  `<span class="badge badge-flood-low">低</span>`,
+                );
               return `
             <tr>
               <td><strong>${l.name}</strong></td>
@@ -257,6 +320,7 @@ app.get("/", (req, res) => {
               <td>${l.length_km} km</td>
               <td>${l.tower_count}</td>
               <td>${l.segment_count}</td>
+              <td>${floodBadges.join(" ")}</td>
               <td>${l.capacity_mw} MW</td>
               <td>${l.current_capacity_mw} MW</td>
               <td>
@@ -285,6 +349,7 @@ app.get("/", (req, res) => {
               <th>类型</th>
               <th>计划日期</th>
               <th>巡检员</th>
+              <th>汛期</th>
               <th>状态</th>
             </tr>
           </thead>
@@ -298,6 +363,7 @@ app.get("/", (req, res) => {
               <td>${t.task_type}</td>
               <td>${t.planned_date}</td>
               <td>${t.inspector || "-"}</td>
+              <td>${t.flood_season ? '<span class="badge badge-flood-high">汛期</span>' : '<span class="badge badge-flood-low">非汛期</span>'}</td>
               <td>${statusBadge(t.status)}</td>
             </tr>
             `,
@@ -315,6 +381,7 @@ app.get("/", (req, res) => {
               <th>严重度</th>
               <th>缺陷类型</th>
               <th>所属区段</th>
+              <th>汛期相关</th>
               <th>截止日期</th>
               <th>状态</th>
             </tr>
@@ -327,6 +394,7 @@ app.get("/", (req, res) => {
               <td>${severityBadge(d.severity)}</td>
               <td title="${d.description}">${d.defect_type}</td>
               <td>${d.segment_no ? d.segment_no + " (" + d.line_name + ")" : "-"}</td>
+              <td>${d.flood_related ? '<span class="badge badge-flood-medium">汛期</span>' : '<span class="badge badge-flood-low">否</span>'}</td>
               <td>${d.deadline || "-"}</td>
               <td>${statusBadge(d.status)}</td>
             </tr>
@@ -346,6 +414,7 @@ app.get("/", (req, res) => {
         <a href="/api/stats/repair-duration" class="api-link">⏱️ /api/stats/repair-duration - 平均消缺时长</a>
         <a href="/api/stats/overdue" class="api-link">⚠️ /api/stats/overdue - 超期未处理统计</a>
         <a href="/api/stats/availability" class="api-link">🔋 /api/stats/availability - 线路可用率与容量</a>
+        <a href="/api/stats/flood-risk" class="api-link">🌧️ /api/stats/flood-risk - 汛期通道风险详情</a>
         <a href="/api" class="api-link">🔗 查看完整 API 索引</a>
       </div>
     </div>

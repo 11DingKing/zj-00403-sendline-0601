@@ -33,6 +33,7 @@ router.post("/", (req, res) => {
     longitude,
     road_accessibility,
     icing_risk,
+    slope_flood_risk,
     responsible_team,
     build_year,
   } = req.body;
@@ -50,8 +51,8 @@ router.post("/", (req, res) => {
     const info = db
       .prepare(
         `
-      INSERT INTO towers (line_id, tower_no, type, altitude, latitude, longitude, road_accessibility, icing_risk, responsible_team, build_year)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO towers (line_id, tower_no, type, altitude, latitude, longitude, road_accessibility, icing_risk, slope_flood_risk, responsible_team, build_year)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -63,6 +64,7 @@ router.post("/", (req, res) => {
         longitude,
         road_accessibility,
         icing_risk,
+        slope_flood_risk || "低",
         responsible_team,
         build_year,
       );
@@ -90,6 +92,7 @@ router.put("/:id", (req, res) => {
     longitude,
     road_accessibility,
     icing_risk,
+    slope_flood_risk,
     responsible_team,
     build_year,
   } = req.body;
@@ -104,6 +107,7 @@ router.put("/:id", (req, res) => {
       longitude = COALESCE(?, longitude),
       road_accessibility = COALESCE(?, road_accessibility),
       icing_risk = COALESCE(?, icing_risk),
+      slope_flood_risk = COALESCE(?, slope_flood_risk),
       responsible_team = COALESCE(?, responsible_team),
       build_year = COALESCE(?, build_year)
     WHERE id = ?
@@ -117,6 +121,7 @@ router.put("/:id", (req, res) => {
     longitude,
     road_accessibility,
     icing_risk,
+    slope_flood_risk,
     responsible_team,
     build_year,
     req.params.id,

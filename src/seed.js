@@ -46,8 +46,8 @@ function seed() {
     ).lastInsertRowid;
 
     const insertTower = db.prepare(`
-      INSERT INTO towers (line_id, tower_no, type, altitude, latitude, longitude, road_accessibility, icing_risk, responsible_team, build_year)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO towers (line_id, tower_no, type, altitude, latitude, longitude, road_accessibility, icing_risk, slope_flood_risk, responsible_team, build_year)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const towerData = [
@@ -59,6 +59,7 @@ function seed() {
         29.1234,
         119.4567,
         "良好",
+        "低",
         "低",
         "运维一班",
         2019,
@@ -72,6 +73,7 @@ function seed() {
         119.4578,
         "一般",
         "中",
+        "中",
         "运维一班",
         2019,
       ],
@@ -83,6 +85,7 @@ function seed() {
         29.1256,
         119.4589,
         "困难",
+        "高",
         "高",
         "运维一班",
         2019,
@@ -96,6 +99,7 @@ function seed() {
         119.46,
         "困难",
         "高",
+        "高",
         "运维一班",
         2019,
       ],
@@ -107,6 +111,7 @@ function seed() {
         29.1278,
         119.4611,
         "一般",
+        "中",
         "中",
         "运维一班",
         2019,
@@ -120,6 +125,7 @@ function seed() {
         119.4622,
         "一般",
         "低",
+        "低",
         "运维一班",
         2019,
       ],
@@ -131,6 +137,7 @@ function seed() {
         29.13,
         119.4633,
         "良好",
+        "低",
         "低",
         "运维一班",
         2019,
@@ -144,6 +151,7 @@ function seed() {
         119.4644,
         "良好",
         "低",
+        "低",
         "运维一班",
         2019,
       ],
@@ -155,6 +163,7 @@ function seed() {
         29.2234,
         119.5567,
         "良好",
+        "低",
         "低",
         "运维二班",
         2020,
@@ -168,6 +177,7 @@ function seed() {
         119.5578,
         "一般",
         "中",
+        "中",
         "运维二班",
         2020,
       ],
@@ -179,6 +189,7 @@ function seed() {
         29.2256,
         119.5589,
         "困难",
+        "高",
         "高",
         "运维二班",
         2020,
@@ -192,6 +203,7 @@ function seed() {
         119.56,
         "困难",
         "高",
+        "高",
         "运维二班",
         2020,
       ],
@@ -203,6 +215,7 @@ function seed() {
         29.2278,
         119.5611,
         "一般",
+        "中",
         "中",
         "运维二班",
         2020,
@@ -216,6 +229,7 @@ function seed() {
         119.5622,
         "一般",
         "低",
+        "低",
         "运维二班",
         2020,
       ],
@@ -228,6 +242,7 @@ function seed() {
         119.5633,
         "良好",
         "低",
+        "低",
         "运维二班",
         2020,
       ],
@@ -238,8 +253,8 @@ function seed() {
     );
 
     const insertSegment = db.prepare(`
-      INSERT INTO segments (line_id, segment_no, start_tower_id, end_tower_id, length_km, altitude_avg, road_accessibility, icing_risk, responsible_team, max_capacity_mw, current_capacity_mw)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO segments (line_id, segment_no, start_tower_id, end_tower_id, length_km, altitude_avg, road_accessibility, icing_risk, flood_risk_level, responsible_team, max_capacity_mw, current_capacity_mw)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const segmentData = [
@@ -251,6 +266,7 @@ function seed() {
         3.2,
         463,
         "一般",
+        "中",
         "中",
         "运维一班",
         200,
@@ -265,6 +281,7 @@ function seed() {
         683,
         "困难",
         "高",
+        "高",
         "运维一班",
         200,
         200,
@@ -277,6 +294,7 @@ function seed() {
         4.1,
         485,
         "一般",
+        "低",
         "低",
         "运维一班",
         200,
@@ -291,6 +309,7 @@ function seed() {
         423,
         "一般",
         "中",
+        "中",
         "运维二班",
         180,
         180,
@@ -303,6 +322,7 @@ function seed() {
         3.1,
         653,
         "困难",
+        "高",
         "高",
         "运维二班",
         180,
@@ -317,6 +337,7 @@ function seed() {
         430,
         "一般",
         "低",
+        "低",
         "运维二班",
         180,
         180,
@@ -328,8 +349,8 @@ function seed() {
     );
 
     const insertCrossing = db.prepare(`
-      INSERT INTO crossing_points (segment_id, crossing_type, description, distance_from_start, protection_level)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO crossing_points (segment_id, crossing_type, description, distance_from_start, protection_level, flood_risk_level)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     insertCrossing.run(
       segmentIds[0],
@@ -337,6 +358,7 @@ function seed() {
       "跨越S201省道，距路面高度18m",
       1.2,
       "一级",
+      "低",
     );
     insertCrossing.run(
       segmentIds[0],
@@ -344,25 +366,42 @@ function seed() {
       "跨越青河，跨距320m",
       2.5,
       "二级",
+      "高",
     );
-    insertCrossing.run(segmentIds[2], "铁路", "跨越青山支线铁路", 3.0, "一级");
-    insertCrossing.run(segmentIds[3], "公路", "跨越乡道Y003", 1.5, "二级");
+    insertCrossing.run(
+      segmentIds[2],
+      "铁路",
+      "跨越青山支线铁路",
+      3.0,
+      "一级",
+      "低",
+    );
+    insertCrossing.run(
+      segmentIds[3],
+      "公路",
+      "跨越乡道Y003",
+      1.5,
+      "二级",
+      "中",
+    );
     insertCrossing.run(
       segmentIds[4],
       "10kV线路",
       "跨越10kV碧湖线",
       2.2,
       "二级",
+      "中",
     );
 
     const insertHazard = db.prepare(`
-      INSERT INTO hazard_points (segment_id, hazard_type, description, risk_level, distance_from_start, mitigation_measures)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO hazard_points (segment_id, hazard_type, description, risk_level, flood_risk_level, distance_from_start, mitigation_measures)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     insertHazard.run(
       segmentIds[1],
       "地质滑坡",
       "塔基位于半山腰，雨季易发生土体滑移",
+      "高",
       "高",
       1.8,
       "设置挡土墙，定期监测位移",
@@ -372,6 +411,7 @@ function seed() {
       "覆冰",
       "高海拔区段，冬季覆冰厚度可达20mm",
       "高",
+      "低",
       2.5,
       "安装融冰装置，增加巡检频次",
     );
@@ -380,6 +420,7 @@ function seed() {
       "山火",
       "林区通道，春秋干燥季节易发山火",
       "中",
+      "低",
       1.2,
       "开设防火隔离带，定期清理通道",
     );
@@ -388,8 +429,18 @@ function seed() {
       "覆冰",
       "海拔700m以上区段冬季覆冰",
       "高",
+      "低",
       2.8,
       "缩短巡检周期，重点关注导地线",
+    );
+    insertHazard.run(
+      segmentIds[4],
+      "通道树障",
+      "通道下方乔木生长迅速，雨季生长更快",
+      "中",
+      "高",
+      0.5,
+      "定期砍伐清理，雨季增加巡检",
     );
 
     const today = new Date();
@@ -406,8 +457,8 @@ function seed() {
     };
 
     const insertTask = db.prepare(`
-      INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, status, inspector, actual_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, status, inspector, actual_date, flood_season)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const task1 = insertTask.run(
       segmentIds[0],
@@ -417,6 +468,7 @@ function seed() {
       "已完成",
       "张三",
       daysAgo(23),
+      0,
     ).lastInsertRowid;
     const task2 = insertTask.run(
       segmentIds[1],
@@ -426,6 +478,7 @@ function seed() {
       "已完成",
       "李四",
       daysAgo(18),
+      0,
     ).lastInsertRowid;
     const task3 = insertTask.run(
       segmentIds[2],
@@ -435,6 +488,7 @@ function seed() {
       "已完成",
       "王五",
       daysAgo(13),
+      0,
     ).lastInsertRowid;
     const task4 = insertTask.run(
       segmentIds[3],
@@ -444,6 +498,7 @@ function seed() {
       "已完成",
       "赵六",
       daysAgo(8),
+      0,
     ).lastInsertRowid;
     const task5 = insertTask.run(
       segmentIds[4],
@@ -453,6 +508,7 @@ function seed() {
       "已完成",
       "孙七",
       daysAgo(3),
+      1,
     ).lastInsertRowid;
     const task6 = insertTask.run(
       segmentIds[1],
@@ -462,6 +518,7 @@ function seed() {
       "待执行",
       "李四",
       null,
+      1,
     ).lastInsertRowid;
     const task7 = insertTask.run(
       segmentIds[4],
@@ -471,6 +528,7 @@ function seed() {
       "待执行",
       "孙七",
       null,
+      1,
     ).lastInsertRowid;
     const task8 = insertTask.run(
       segmentIds[0],
@@ -480,6 +538,7 @@ function seed() {
       "待执行",
       "张三",
       null,
+      1,
     ).lastInsertRowid;
 
     const insertRecord = db.prepare(`
@@ -843,8 +902,8 @@ function seed() {
     );
 
     const insertDefect = db.prepare(`
-      INSERT INTO defect_orders (record_id, segment_id, defect_type, description, severity, status, assignee, deadline, handled_at, handler, handle_notes, reviewed_at, reviewer, review_notes, capacity_restricted)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO defect_orders (record_id, segment_id, defect_type, description, severity, status, assignee, deadline, handled_at, handler, handle_notes, reviewed_at, reviewer, review_notes, capacity_restricted, flood_related)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const defects = [
@@ -864,6 +923,7 @@ function seed() {
         "王主任",
         "更换合格，复核通过",
         0,
+        0,
       ],
       [
         recordIds[3],
@@ -881,6 +941,7 @@ function seed() {
         null,
         null,
         0,
+        1,
       ],
       [
         recordIds[4],
@@ -898,6 +959,7 @@ function seed() {
         null,
         null,
         1,
+        0,
       ],
       [
         recordIds[4],
@@ -914,6 +976,7 @@ function seed() {
         daysAgo(12),
         "王主任",
         "金具更换规范，复核通过",
+        0,
         0,
       ],
       [
@@ -932,6 +995,7 @@ function seed() {
         null,
         null,
         0,
+        0,
       ],
       [
         recordIds[4],
@@ -949,6 +1013,7 @@ function seed() {
         "王主任",
         "清理彻底，通道达标",
         0,
+        1,
       ],
       [
         recordIds[12],
@@ -965,6 +1030,7 @@ function seed() {
         daysAgo(4),
         "李主任",
         "清扫合格，绝缘恢复正常",
+        0,
         0,
       ],
       [
@@ -983,6 +1049,7 @@ function seed() {
         null,
         null,
         0,
+        0,
       ],
       [
         recordIds[15],
@@ -1000,6 +1067,7 @@ function seed() {
         null,
         null,
         0,
+        0,
       ],
       [
         recordIds[15],
@@ -1016,6 +1084,7 @@ function seed() {
         null,
         null,
         null,
+        1,
         1,
       ],
     ];

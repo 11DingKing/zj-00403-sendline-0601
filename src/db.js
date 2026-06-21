@@ -1,17 +1,17 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const Database = require("better-sqlite3");
+const path = require("path");
+const fs = require("fs");
 
-const dbDir = path.join(__dirname, '..', 'data');
+const dbDir = path.join(__dirname, "..", "data");
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const dbPath = path.join(dbDir, 'inspection.db');
+const dbPath = path.join(dbDir, "inspection.db");
 const db = new Database(dbPath);
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
 
 function initTables() {
   db.exec(`
@@ -54,6 +54,7 @@ function initTables() {
       altitude_avg REAL,
       road_accessibility TEXT NOT NULL,
       icing_risk TEXT NOT NULL,
+      flood_risk_level TEXT DEFAULT '低',
       responsible_team TEXT NOT NULL,
       max_capacity_mw REAL,
       current_capacity_mw REAL,
@@ -69,6 +70,7 @@ function initTables() {
       description TEXT,
       distance_from_start REAL,
       protection_level TEXT,
+      flood_risk_level TEXT DEFAULT '低',
       FOREIGN KEY (segment_id) REFERENCES segments(id)
     );
 
@@ -78,6 +80,7 @@ function initTables() {
       hazard_type TEXT NOT NULL,
       description TEXT NOT NULL,
       risk_level TEXT NOT NULL,
+      flood_risk_level TEXT DEFAULT '低',
       distance_from_start REAL,
       mitigation_measures TEXT,
       FOREIGN KEY (segment_id) REFERENCES segments(id)
@@ -92,6 +95,7 @@ function initTables() {
       status TEXT DEFAULT '待执行',
       inspector TEXT,
       actual_date TEXT,
+      flood_season INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (segment_id) REFERENCES segments(id)
     );
@@ -140,12 +144,85 @@ function initTables() {
       reviewer TEXT,
       review_notes TEXT,
       capacity_restricted INTEGER DEFAULT 0,
+      flood_related INTEGER DEFAULT 0,
       FOREIGN KEY (record_id) REFERENCES inspection_records(id),
       FOREIGN KEY (segment_id) REFERENCES segments(id)
     );
   `);
 }
 
+function migrateTables() {
+  const columns = (table) => {
+    try {
+      return db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name);
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const towerCols = columns("towers");
+  if (!towerCols.includes("slope_flood_risk")) {
+    db.prepare(
+      `ALTER TABLE towers ADD COLUMN slope_flood_risk TEXT DEFAULT '低'`,
+    ).run();
+  }
+
+  const segCols = columns("segments");
+  if (!segCols.includes("flood_risk_level")) {
+    db.prepare(
+      `ALTER TABLE segments ADD COLUMN flood_risk_level TEXT DEFAULT '低'`,
+    ).run();
+  }
+
+  const crossCols = columns("crossing_points");
+  if (!crossCols.includes("flood_risk_level")) {
+    db.prepare(
+      `ALTER TABLE crossing_points ADD COLUMN flood_risk_level TEXT DEFAULT '低'`,
+    ).run();
+  }
+
+  const hazardCols = columns("hazard_points");
+  if (!hazardCols.includes("flood_risk_level")) {
+    db.prepare(
+      `ALTER TABLE hazard_points ADD COLUMN flood_risk_level TEXT DEFAULT '低'`,
+    ).run();
+  }
+
+  const taskCols = columns("inspection_tasks");
+  if (!taskCols.includes("flood_season")) {
+    db.prepare(
+      `ALTER TABLE inspection_tasks ADD COLUMN flood_season INTEGER DEFAULT 0`,
+    ).run();
+  }
+
+  const defectCols = columns("defect_orders");
+  if (!defectCols.includes("flood_related")) {
+    db.prepare(
+      `ALTER TABLE defect_orders ADD COLUMN flood_related INTEGER DEFAULT 0`,
+    ).run();
+  }
+}
+
 initTables();
+migrateTables();
+
+function isFloodSeason(dateStr) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const month = d.getMonth() + 1;
+  return month >= 5 && month <= 9;
+}
+
+function getFloodRiskCycle(baseDays, floodRiskLevel) {
+  if (!isFloodSeason()) return baseDays;
+  if (floodRiskLevel === "高") return Math.max(3, Math.floor(baseDays * 0.4));
+  if (floodRiskLevel === "中") return Math.max(5, Math.floor(baseDays * 0.6));
+  return baseDays;
+}
+
+db.isFloodSeason = isFloodSeason;
+db.getFloodRiskCycle = getFloodRiskCycle;
 
 module.exports = db;

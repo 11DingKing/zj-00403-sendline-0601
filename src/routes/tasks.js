@@ -9,13 +9,20 @@ function addDays(dateStr, days) {
 }
 
 function generateTasks() {
-  const segments = db.prepare("SELECT id, icing_risk FROM segments").all();
+  const segments = db
+    .prepare("SELECT id, icing_risk, flood_risk_level FROM segments")
+    .all();
   const today = new Date().toISOString().split("T")[0];
+  const isFlood = db.isFloodSeason();
 
   segments.forEach((seg) => {
     let cycle_days = 30;
     if (seg.icing_risk === "高") cycle_days = 15;
     else if (seg.icing_risk === "中") cycle_days = 20;
+
+    if (isFlood) {
+      cycle_days = db.getFloodRiskCycle(cycle_days, seg.flood_risk_level);
+    }
 
     const lastTask = db
       .prepare(
@@ -47,10 +54,10 @@ function generateTasks() {
     if (!existing) {
       db.prepare(
         `
-        INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, status)
-        VALUES (?, '定期巡检', ?, ?, '待执行')
+        INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, status, flood_season)
+        VALUES (?, '定期巡检', ?, ?, '待执行', ?)
       `,
-      ).run(seg.id, cycle_days, nextDate);
+      ).run(seg.id, cycle_days, nextDate, isFlood ? 1 : 0);
     }
   });
 }
@@ -129,14 +136,22 @@ router.post("/", (req, res) => {
   if (!segment_id || !planned_date) {
     return res.status(400).json({ error: "缺少必填字段" });
   }
+  const floodSeason = db.isFloodSeason(planned_date) ? 1 : 0;
   const info = db
     .prepare(
       `
-    INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, inspector, status)
-    VALUES (?, ?, ?, ?, ?, '待执行')
+    INSERT INTO inspection_tasks (segment_id, task_type, cycle_days, planned_date, inspector, status, flood_season)
+    VALUES (?, ?, ?, ?, ?, '待执行', ?)
   `,
     )
-    .run(segment_id, task_type, cycle_days, planned_date, inspector);
+    .run(
+      segment_id,
+      task_type,
+      cycle_days,
+      planned_date,
+      inspector,
+      floodSeason,
+    );
   const task = db
     .prepare("SELECT * FROM inspection_tasks WHERE id = ?")
     .get(info.lastInsertRowid);

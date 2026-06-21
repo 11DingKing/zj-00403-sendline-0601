@@ -206,7 +206,7 @@ router.get("/availability", (req, res) => {
     const restrictedDefects = db
       .prepare(
         `
-      SELECT created_at, reviewed_at, status, severity
+      SELECT created_at, reviewed_at, status, severity, flood_related
       FROM defect_orders
       WHERE segment_id = ? AND capacity_restricted = 1
     `,
@@ -214,6 +214,7 @@ router.get("/availability", (req, res) => {
       .all(seg.id);
 
     let restrictedDays = 0;
+    let floodRestrictedDays = 0;
     restrictedDefects.forEach((d) => {
       const start = new Date(d.created_at);
       const end = d.reviewed_at ? new Date(d.reviewed_at) : today;
@@ -222,11 +223,16 @@ router.get("/availability", (req, res) => {
         checkDate.setDate(checkDate.getDate() - i);
         if (checkDate >= start && checkDate <= end) {
           restrictedDays++;
+          if (d.flood_related) floodRestrictedDays++;
         }
       }
     });
 
     const availabilityRatio = +((1 - restrictedDays / days) * 100).toFixed(2);
+    const floodAvailabilityRatio = +(
+      (1 - floodRestrictedDays / days) *
+      100
+    ).toFixed(2);
     const capacityRatio =
       seg.max_capacity_mw > 0
         ? +((seg.current_capacity_mw / seg.max_capacity_mw) * 100).toFixed(2)
@@ -237,8 +243,11 @@ router.get("/availability", (req, res) => {
       segment_no: seg.segment_no,
       line_name: seg.line_name,
       line_id: seg.line_id,
+      flood_risk_level: seg.flood_risk_level,
       availability_30d: availabilityRatio,
+      flood_availability_30d: floodAvailabilityRatio,
       restricted_days_30d: restrictedDays,
+      flood_restricted_days_30d: floodRestrictedDays,
       max_capacity_mw: seg.max_capacity_mw,
       current_capacity_mw: seg.current_capacity_mw,
       capacity_ratio: capacityRatio,
@@ -254,10 +263,24 @@ router.get("/availability", (req, res) => {
             segStats.length
           ).toFixed(2)
         : 100;
+    const avgFloodAvailability =
+      segStats.length > 0
+        ? +(
+            segStats.reduce((a, b) => a + b.flood_availability_30d, 0) /
+            segStats.length
+          ).toFixed(2)
+        : 100;
     const capacityRatio =
       line.capacity_mw > 0
         ? +((line.current_capacity_mw / line.capacity_mw) * 100).toFixed(2)
         : 0;
+
+    const highFloodSegments = segStats.filter(
+      (s) => s.flood_risk_level === "高",
+    ).length;
+    const mediumFloodSegments = segStats.filter(
+      (s) => s.flood_risk_level === "中",
+    ).length;
 
     return {
       line_id: line.id,
@@ -265,10 +288,16 @@ router.get("/availability", (req, res) => {
       voltage: line.voltage,
       length_km: line.length_km,
       availability_30d: avgAvailability,
+      flood_availability_30d: avgFloodAvailability,
       capacity_ratio: capacityRatio,
       max_capacity_mw: line.capacity_mw,
       current_capacity_mw: line.current_capacity_mw,
       segment_count: segStats.length,
+      flood_risk_segments: {
+        high: highFloodSegments,
+        medium: mediumFloodSegments,
+        low: segStats.length - highFloodSegments - mediumFloodSegments,
+      },
     };
   });
 
@@ -279,6 +308,13 @@ router.get("/availability", (req, res) => {
       lines.length > 0
         ? +(
             lineAvailability.reduce((a, b) => a + b.availability_30d, 0) /
+            lines.length
+          ).toFixed(2)
+        : 100,
+    avg_flood_availability_30d:
+      lines.length > 0
+        ? +(
+            lineAvailability.reduce((a, b) => a + b.flood_availability_30d, 0) /
             lines.length
           ).toFixed(2)
         : 100,
@@ -296,6 +332,12 @@ router.get("/availability", (req, res) => {
             100
           ).toFixed(2)
         : 100,
+    is_flood_season: db.isFloodSeason(),
+    flood_risk_segments: {
+      high: segments.filter((s) => s.flood_risk_level === "高").length,
+      medium: segments.filter((s) => s.flood_risk_level === "中").length,
+      low: segments.filter((s) => s.flood_risk_level === "低").length,
+    },
   };
 
   res.json({
@@ -306,6 +348,88 @@ router.get("/availability", (req, res) => {
     by_segment: segmentAvailability.sort(
       (a, b) => a.availability_30d - b.availability_30d,
     ),
+  });
+});
+
+router.get("/flood-risk", (req, res) => {
+  const segments = db
+    .prepare(
+      `
+    SELECT s.*, l.name as line_name, l.id as line_id
+    FROM segments s
+    LEFT JOIN lines l ON s.line_id = l.id
+    ORDER BY CASE s.flood_risk_level WHEN '高' THEN 1 WHEN '中' THEN 2 ELSE 3 END, s.id
+  `,
+    )
+    .all();
+
+  const result = segments.map((seg) => {
+    const towers = db
+      .prepare(
+        "SELECT id, tower_no, slope_flood_risk FROM towers WHERE id IN (?, ?)",
+      )
+      .all(seg.start_tower_id, seg.end_tower_id);
+
+    const crossings = db
+      .prepare("SELECT * FROM crossing_points WHERE segment_id = ?")
+      .all(seg.id);
+
+    const hazards = db
+      .prepare("SELECT * FROM hazard_points WHERE segment_id = ?")
+      .all(seg.id);
+
+    const activeFloodDefects = db
+      .prepare(
+        `SELECT COUNT(*) as c FROM defect_orders 
+       WHERE segment_id = ? AND flood_related = 1 AND status IN ('待处理', '处理中')`,
+      )
+      .get(seg.id).c;
+
+    return {
+      segment_id: seg.id,
+      segment_no: seg.segment_no,
+      line_id: seg.line_id,
+      line_name: seg.line_name,
+      flood_risk_level: seg.flood_risk_level,
+      length_km: seg.length_km,
+      responsible_team: seg.responsible_team,
+      towers,
+      crossings: crossings.map((c) => ({
+        id: c.id,
+        crossing_type: c.crossing_type,
+        description: c.description,
+        flood_risk_level: c.flood_risk_level,
+      })),
+      hazards: hazards.map((h) => ({
+        id: h.id,
+        hazard_type: h.hazard_type,
+        description: h.description,
+        risk_level: h.risk_level,
+        flood_risk_level: h.flood_risk_level,
+      })),
+      active_flood_defects: activeFloodDefects,
+      current_capacity_mw: seg.current_capacity_mw,
+      max_capacity_mw: seg.max_capacity_mw,
+      capacity_ratio:
+        seg.max_capacity_mw > 0
+          ? +((seg.current_capacity_mw / seg.max_capacity_mw) * 100).toFixed(2)
+          : 0,
+    };
+  });
+
+  const highRisk = result.filter((r) => r.flood_risk_level === "高").length;
+  const mediumRisk = result.filter((r) => r.flood_risk_level === "中").length;
+  const lowRisk = result.filter((r) => r.flood_risk_level === "低").length;
+
+  res.json({
+    is_flood_season: db.isFloodSeason(),
+    total_segments: result.length,
+    risk_distribution: {
+      high: highRisk,
+      medium: mediumRisk,
+      low: lowRisk,
+    },
+    segments: result,
   });
 });
 

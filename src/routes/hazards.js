@@ -21,6 +21,7 @@ router.post("/", (req, res) => {
     hazard_type,
     description,
     risk_level,
+    flood_risk_level,
     distance_from_start,
     mitigation_measures,
   } = req.body;
@@ -30,8 +31,8 @@ router.post("/", (req, res) => {
   const info = db
     .prepare(
       `
-    INSERT INTO hazard_points (segment_id, hazard_type, description, risk_level, distance_from_start, mitigation_measures)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO hazard_points (segment_id, hazard_type, description, risk_level, flood_risk_level, distance_from_start, mitigation_measures)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .run(
@@ -39,6 +40,7 @@ router.post("/", (req, res) => {
       hazard_type,
       description,
       risk_level,
+      flood_risk_level || "低",
       distance_from_start,
       mitigation_measures,
     );
@@ -57,6 +59,7 @@ router.put("/:id", (req, res) => {
     hazard_type,
     description,
     risk_level,
+    flood_risk_level,
     distance_from_start,
     mitigation_measures,
   } = req.body;
@@ -66,6 +69,7 @@ router.put("/:id", (req, res) => {
       hazard_type = COALESCE(?, hazard_type),
       description = COALESCE(?, description),
       risk_level = COALESCE(?, risk_level),
+      flood_risk_level = COALESCE(?, flood_risk_level),
       distance_from_start = COALESCE(?, distance_from_start),
       mitigation_measures = COALESCE(?, mitigation_measures)
     WHERE id = ?
@@ -74,6 +78,7 @@ router.put("/:id", (req, res) => {
     hazard_type,
     description,
     risk_level,
+    flood_risk_level,
     distance_from_start,
     mitigation_measures,
     req.params.id,

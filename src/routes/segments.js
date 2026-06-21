@@ -51,6 +51,53 @@ router.get("/:id", (req, res) => {
   res.json({ ...segment, crossings, hazards });
 });
 
+function recalcSegmentFloodRisk(segmentId) {
+  const segment = db
+    .prepare("SELECT * FROM segments WHERE id = ?")
+    .get(segmentId);
+  if (!segment) return;
+
+  const towers = db
+    .prepare("SELECT slope_flood_risk FROM towers WHERE id IN (?, ?)")
+    .all(segment.start_tower_id, segment.end_tower_id);
+
+  const crossings = db
+    .prepare(
+      "SELECT flood_risk_level FROM crossing_points WHERE segment_id = ?",
+    )
+    .all(segmentId);
+
+  const hazards = db
+    .prepare("SELECT flood_risk_level FROM hazard_points WHERE segment_id = ?")
+    .all(segmentId);
+
+  const riskMap = { 低: 1, 中: 2, 高: 3 };
+  let maxRisk = 1;
+
+  towers.forEach((t) => {
+    if (t.slope_flood_risk && riskMap[t.slope_flood_risk] > maxRisk) {
+      maxRisk = riskMap[t.slope_flood_risk];
+    }
+  });
+  crossings.forEach((c) => {
+    if (c.flood_risk_level && riskMap[c.flood_risk_level] > maxRisk) {
+      maxRisk = riskMap[c.flood_risk_level];
+    }
+  });
+  hazards.forEach((h) => {
+    if (h.flood_risk_level && riskMap[h.flood_risk_level] > maxRisk) {
+      maxRisk = riskMap[h.flood_risk_level];
+    }
+  });
+
+  const riskLevel =
+    Object.keys(riskMap).find((k) => riskMap[k] === maxRisk) || "低";
+  db.prepare("UPDATE segments SET flood_risk_level = ? WHERE id = ?").run(
+    riskLevel,
+    segmentId,
+  );
+}
+
 router.post("/", (req, res) => {
   const {
     line_id,
@@ -61,6 +108,7 @@ router.post("/", (req, res) => {
     altitude_avg,
     road_accessibility,
     icing_risk,
+    flood_risk_level,
     responsible_team,
     max_capacity_mw,
   } = req.body;
@@ -79,8 +127,8 @@ router.post("/", (req, res) => {
   const info = db
     .prepare(
       `
-    INSERT INTO segments (line_id, segment_no, start_tower_id, end_tower_id, length_km, altitude_avg, road_accessibility, icing_risk, responsible_team, max_capacity_mw, current_capacity_mw)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO segments (line_id, segment_no, start_tower_id, end_tower_id, length_km, altitude_avg, road_accessibility, icing_risk, flood_risk_level, responsible_team, max_capacity_mw, current_capacity_mw)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .run(
@@ -92,6 +140,7 @@ router.post("/", (req, res) => {
       altitude_avg,
       road_accessibility,
       icing_risk,
+      flood_risk_level || "低",
       responsible_team,
       max_capacity_mw,
       max_capacity_mw,
@@ -118,6 +167,7 @@ router.put("/:id", (req, res) => {
     altitude_avg,
     road_accessibility,
     icing_risk,
+    flood_risk_level,
     responsible_team,
     max_capacity_mw,
     current_capacity_mw,
@@ -133,6 +183,7 @@ router.put("/:id", (req, res) => {
       altitude_avg = COALESCE(?, altitude_avg),
       road_accessibility = COALESCE(?, road_accessibility),
       icing_risk = COALESCE(?, icing_risk),
+      flood_risk_level = COALESCE(?, flood_risk_level),
       responsible_team = COALESCE(?, responsible_team),
       max_capacity_mw = COALESCE(?, max_capacity_mw),
       current_capacity_mw = COALESCE(?, current_capacity_mw)
@@ -147,12 +198,25 @@ router.put("/:id", (req, res) => {
     altitude_avg,
     road_accessibility,
     icing_risk,
+    flood_risk_level,
     responsible_team,
     max_capacity_mw,
     current_capacity_mw,
     req.params.id,
   );
 
+  const updated = db
+    .prepare("SELECT * FROM segments WHERE id = ?")
+    .get(req.params.id);
+  res.json(updated);
+});
+
+router.post("/:id/recalc-flood-risk", (req, res) => {
+  const segment = db
+    .prepare("SELECT * FROM segments WHERE id = ?")
+    .get(req.params.id);
+  if (!segment) return res.status(404).json({ error: "区段不存在" });
+  recalcSegmentFloodRisk(req.params.id);
   const updated = db
     .prepare("SELECT * FROM segments WHERE id = ?")
     .get(req.params.id);
@@ -167,4 +231,4 @@ router.delete("/:id", (req, res) => {
   res.json({ message: "已删除" });
 });
 
-module.exports = router;
+module.exports = { router, recalcSegmentFloodRisk };
