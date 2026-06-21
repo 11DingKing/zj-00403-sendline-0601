@@ -38,10 +38,12 @@ function recalcCapacity(segmentId) {
     segmentId,
   );
   db.prepare(
-    `UPDATE defect_orders SET capacity_restricted = 1 WHERE segment_id = ? AND severity = '危急' AND status IN ('待处理', '处理中')`,
+    `UPDATE defect_orders SET capacity_restricted = 1 
+     WHERE segment_id = ? AND severity IN ('危急', '严重') AND status IN ('待处理', '处理中')`,
   ).run(segmentId);
   db.prepare(
-    `UPDATE defect_orders SET capacity_restricted = 0 WHERE segment_id = ? AND (severity != '危急' OR status NOT IN ('待处理', '处理中'))`,
+    `UPDATE defect_orders SET capacity_restricted = 0 
+     WHERE segment_id = ? AND (severity NOT IN ('危急', '严重') OR status NOT IN ('待处理', '处理中'))`,
   ).run(segmentId);
 
   const line = db
@@ -156,7 +158,7 @@ router.post("/", (req, res) => {
         deadlineDate,
       );
 
-    if (severity === "危急") {
+    if (severity === "危急" || severity === "严重") {
       recalcCapacity(segment_id);
     }
     return info.lastInsertRowid;
@@ -260,7 +262,16 @@ router.put("/:id", (req, res) => {
   `,
   ).run(defect_type, description, severity, deadline, assignee, req.params.id);
 
-  if (severity === "危急" && order.severity !== "危急") {
+  if (
+    (severity === "危急" || severity === "严重") &&
+    order.severity !== severity
+  ) {
+    recalcCapacity(order.segment_id);
+  } else if (
+    (order.severity === "危急" || order.severity === "严重") &&
+    severity &&
+    severity !== order.severity
+  ) {
     recalcCapacity(order.segment_id);
   }
 

@@ -59,11 +59,11 @@ router.get("/repair-duration", (req, res) => {
   const closedDefects = db
     .prepare(
       `
-    SELECT do.*, s.segment_no, l.name as line_name
-    FROM defect_orders do
-    LEFT JOIN segments s ON do.segment_id = s.id
+    SELECT df.*, s.segment_no, l.name as line_name
+    FROM defect_orders df
+    LEFT JOIN segments s ON df.segment_id = s.id
     LEFT JOIN lines l ON s.line_id = l.id
-    WHERE do.status = '已关闭' AND do.handled_at IS NOT NULL
+    WHERE df.status = '已关闭' AND df.handled_at IS NOT NULL
   `,
     )
     .all();
@@ -138,12 +138,12 @@ router.get("/overdue", (req, res) => {
   const overdue = db
     .prepare(
       `
-    SELECT do.*, s.segment_no, l.name as line_name, s.responsible_team
-    FROM defect_orders do
-    LEFT JOIN segments s ON do.segment_id = s.id
+    SELECT df.*, s.segment_no, l.name as line_name, s.responsible_team
+    FROM defect_orders df
+    LEFT JOIN segments s ON df.segment_id = s.id
     LEFT JOIN lines l ON s.line_id = l.id
-    WHERE do.status IN ('待处理', '处理中', '待复核') AND do.deadline < ?
-    ORDER BY do.deadline ASC
+    WHERE df.status IN ('待处理', '处理中', '待复核') AND df.deadline < ?
+    ORDER BY df.deadline ASC
   `,
     )
     .all(today);

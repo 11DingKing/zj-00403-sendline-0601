@@ -1,7 +1,20 @@
 const db = require("./db");
-const { recalcCapacity } = require("./routes/defects");
+let recalcCapacity = null;
+
+function loadRecalcCapacity() {
+  if (!recalcCapacity) {
+    try {
+      const defectsModule = require("./routes/defects");
+      recalcCapacity = defectsModule.recalcCapacity;
+    } catch (e) {
+      recalcCapacity = () => {};
+    }
+  }
+  return recalcCapacity;
+}
 
 function seed() {
+  const calcCap = loadRecalcCapacity();
   const tx = db.transaction(() => {
     db.exec(
       "DELETE FROM crossing_points; DELETE FROM hazard_points; DELETE FROM inspection_records; DELETE FROM defect_orders; DELETE FROM inspection_tasks; DELETE FROM segments; DELETE FROM towers; DELETE FROM lines;",
@@ -1008,7 +1021,7 @@ function seed() {
     ];
     defects.forEach((d) => insertDefect.run(...d));
 
-    segmentIds.forEach((sid) => recalcCapacity(sid));
+    segmentIds.forEach((sid) => calcCap(sid));
   });
 
   tx();
@@ -1017,4 +1030,22 @@ function seed() {
   console.log("8个巡检任务，17条巡检记录，10条缺陷工单");
 }
 
-seed();
+function seedIfNeeded() {
+  try {
+    const lineCount = db.prepare("SELECT COUNT(*) as c FROM lines").get().c;
+    if (lineCount === 0) {
+      seed();
+      return true;
+    }
+    return false;
+  } catch (e) {
+    seed();
+    return true;
+  }
+}
+
+if (require.main === module) {
+  seed();
+}
+
+module.exports = { seed, seedIfNeeded };

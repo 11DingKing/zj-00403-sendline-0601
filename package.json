@@ -3,14 +3,19 @@
   "version": "1.0.0",
   "description": "风电送出线路巡检后端系统",
   "main": "src/app.js",
+  "engines": {
+    "node": ">=16.0.0 <23.0.0",
+    "npm": ">=8.0.0"
+  },
   "scripts": {
     "start": "node src/app.js",
     "dev": "node src/app.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "install:stable": "npm install --no-audit --no-fund --ignore-scripts=false"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
-    "express": "^4.19.2",
-    "node-cron": "^3.0.3"
+    "better-sqlite3": "9.6.0",
+    "express": "4.19.2",
+    "node-cron": "3.0.3"
   }
 }

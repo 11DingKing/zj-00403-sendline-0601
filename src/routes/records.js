@@ -1,5 +1,6 @@
 const express = require("express");
 const db = require("../db");
+const { recalcCapacity } = require("./defects");
 const router = express.Router();
 
 router.get("/", (req, res) => {
@@ -180,6 +181,7 @@ router.post("/", (req, res) => {
       .prepare("SELECT segment_id FROM inspection_tasks WHERE id = ?")
       .get(task_id);
     if (task) {
+      let hasSeriousDefect = false;
       defectTypes.forEach((d) => {
         const deadlineDays =
           d.severity === "危急" ? 1 : d.severity === "严重" ? 7 : 30;
@@ -198,7 +200,13 @@ router.post("/", (req, res) => {
           d.severity,
           deadline.toISOString().split("T")[0],
         );
+        if (d.severity === "危急" || d.severity === "严重") {
+          hasSeriousDefect = true;
+        }
       });
+      if (hasSeriousDefect) {
+        recalcCapacity(task.segment_id);
+      }
     }
 
     return info.lastInsertRowid;
